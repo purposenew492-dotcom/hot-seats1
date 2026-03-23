@@ -29,7 +29,15 @@ const ST=[
 ];
 const DEAD=["DISS","NO","SOLD_OUT"];
 
-const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"All Events"},{k:"sports",l:"Sports"},{k:"concerts",l:"Concerts"},{k:"theatre",l:"Theatre"},{k:"top_cities",l:"Top Cities"},{k:"calendar",l:"Calendar"},{k:"quickdial",l:"⚡ Quick Dial"}];
+// Category config: each tab maps to SeatGeek type + Ticketmaster classificationName
+const CAT_CONFIG={
+  sports:{sg:"",tm:"Sports",subs:["NBA","NFL","MLB","NHL","NCAA Mens Basketball","NCAA Womens Basketball","MLS","UFC/MMA","Boxing","Wrestling","Tennis","Golf"]},
+  concerts:{sg:"concert",tm:"Music",subs:["Pop","Rock","Hip-Hop/Rap","Country","R&B","Latin","EDM/Electronic","Alternative","Jazz/Blues","Classical"]},
+  theatre:{sg:"theater",tm:"Arts & Theatre",subs:["Broadway","Musical","Comedy","Opera","Ballet","Cirque du Soleil","Off-Broadway"]},
+  rodeo:{sg:"",tm:"",subs:["PBR","NFR","Rodeo","Bull Riding","Barrel Racing"]},
+};
+
+const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"All Events"},{k:"sports",l:"Sports"},{k:"concerts",l:"Concerts"},{k:"theatre",l:"Theatre"},{k:"rodeo",l:"🤠 Rodeo"},{k:"top_cities",l:"Top Cities"},{k:"calendar",l:"Calendar"},{k:"quickdial",l:"⚡ Quick Dial"}];
 const TOP_CITIES=["Atlanta","Chicago","Los Angeles","New York","SF Bay Area","Boston","Houston","Las Vegas","Denver","Detroit","Nashville","Miami","Philadelphia","Seattle","Portland","Toronto"];
 
 // ── EVENTS ──
@@ -297,21 +305,93 @@ export default function HotSeats(){
   const[isLive,setIsLive]=useState(false);
   const cR=useRef(null);
 
-  // Fetch live events from SeatGeek + Ticketmaster
-  const loadLive=async(query,page=1)=>{
+  // Category-aware fetch from SeatGeek + Ticketmaster
+  const loadCategory=async(category,query="",page=1)=>{
     setLiveLoading(true);setLiveError(null);
-    const data=await fetchAllSources(query,page);
-    if(data.events.length===0&&data.errors){setLiveError(data.errors.join(" | "));setLiveLoading(false);return;}
-    setLiveEvents(prev=>page===1?data.events:[...prev,...data.events]);
-    setLiveTotal(data.total);setLivePage(page);setIsLive(true);setLiveLoading(false);
-    if(data.errors)setLiveError(data.errors.join(" | "));
-    if(page===1)await sv("hf-live-events",data.events);
+    const cfg=CAT_CONFIG[category];
+    try{
+      const params=new URLSearchParams({page:String(page),per_page:"200"});
+      if(query)params.set("q",query);
+      
+      let sgPromise,tmPromise;
+      
+      if(category==="rodeo"){
+        // Rodeo: search by keyword
+        const rParams=new URLSearchParams({page:String(page),per_page:"200",q:"rodeo"});
+        sgPromise=fetch(`/api/seatgeek?${rParams}`).then(r=>r.json()).catch(()=>({events:[]}));
+        const tmP=new URLSearchParams({page:String(page-1),size:"200",q:"rodeo"});
+        tmPromise=fetch(`/api/ticketmaster?${tmP}`).then(r=>r.json()).catch(()=>({events:[]}));
+      } else if(cfg){
+        // SeatGeek: use type param
+        if(cfg.sg)params.set("type",cfg.sg);
+        sgPromise=fetch(`/api/seatgeek?${params}`).then(r=>r.json()).catch(()=>({events:[]}));
+        // Ticketmaster: use category param
+        const tmP=new URLSearchParams({page:String(page-1),size:"200"});
+        if(query)tmP.set("q",query);
+        if(cfg.tm)tmP.set("category",cfg.tm);
+        tmPromise=fetch(`/api/ticketmaster?${tmP}`).then(r=>r.json()).catch(()=>({events:[]}));
+      } else {
+        // All events / search
+        if(query)params.set("q",query);
+        sgPromise=fetch(`/api/seatgeek?${params}`).then(r=>r.json()).catch(()=>({events:[]}));
+        const tmP=new URLSearchParams({page:String(page-1),size:"200"});
+        if(query)tmP.set("q",query);
+        tmPromise=fetch(`/api/ticketmaster?${tmP}`).then(r=>r.json()).catch(()=>({events:[]}));
+      }
+
+      const[sg,tm]=await Promise.all([sgPromise,tmPromise]);
+      
+      // Combine + deduplicate
+      const seen=new Set();const combined=[];
+      const add=(events)=>{(events||[]).forEach(ev=>{const key=(ev.name+ev.date).toLowerCase().replace(/[^a-z0-9]/g,"");if(!seen.has(key)){seen.add(key);combined.push(ev);}});};
+      if(sg?.events)add(sg.events);
+      if(tm?.events)add(tm.events);
+
+      const total=(sg?.total||0)+(tm?.total||0);
+      setLiveEvents(prev=>page===1?combined:[...prev,...combined]);
+      setLiveTotal(total);setLivePage(page);setIsLive(true);setLiveLoading(false);
+      if(page===1)await sv("hf-cat-"+category,combined);
+    }catch(err){setLiveError(err.message);setLiveLoading(false);}
+  };
+
+  // Load when tab changes (auto-fetch for category tabs)
+  const[catCache,setCatCache]=useState({});
+  const[activeSub,setActiveSub]=useState("");
+  
+  useEffect(()=>{
+    if(["sports","concerts","theatre","rodeo"].includes(tab)){
+      // Check if already cached
+      if(catCache[tab]?.length>0){
+        setLiveEvents(catCache[tab]);setIsLive(true);setLiveTotal(catCache[tab].length);
+      } else {
+        loadCategory(tab);
+      }
+      setActiveSub("");
+    } else if(tab==="all"){
+      loadCategory("all");
+      setActiveSub("");
+    }
+  },[tab]);
+
+  // Cache loaded events per category
+  useEffect(()=>{
+    if(isLive&&liveEvents.length>0&&["sports","concerts","theatre","rodeo","all"].includes(tab)){
+      setCatCache(prev=>({...prev,[tab]:liveEvents}));
+    }
+  },[liveEvents,tab,isLive]);
+
+  // Search handler
+  const searchLive=async(query)=>{
+    if(!query.trim())return;
+    setLiveLoading(true);
+    const cat=["sports","concerts","theatre","rodeo"].includes(tab)?tab:"all";
+    await loadCategory(cat,query.trim());
   };
 
   // Load more pages
   const loadMore=async()=>{
-    const nextPage=livePage+1;
-    await loadLive(q,nextPage);
+    const cat=["sports","concerts","theatre","rodeo"].includes(tab)?tab:"all";
+    await loadCategory(cat,q,livePage+1);
   };
 
   // Combined events: live if available, otherwise demo
@@ -321,9 +401,6 @@ export default function HotSeats(){
   },[isLive,liveEvents]);
 
   useEffect(()=>{(async()=>{setLogs(await ld("hf-logs",{}));setSt(await ld("hf-stats",{}));setEmps(await ld("hf-emps",[]));setAct(await ld("hf-act",[]));setPc(await ld("hf-phones",{}));setRems(await ld("hf-rem",[]));setRev(await ld("hf-rev",{}));
-    // Load cached live events
-    const cached=await ld("hf-live-events",[]);
-    if(cached.length>0){setLiveEvents(cached);setIsLive(true);setLiveTotal(cached.length);}
     const l=await ld("hf-emp",null),t=await ld("hf-theme","dark");setTh(t);if(l)setEmp(l);})();},[]);
   useEffect(()=>{const h=e=>{if(cR.current&&!cR.current.contains(e.target))setSc(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
 
@@ -351,17 +428,17 @@ export default function HotSeats(){
   const doRem=async(eid,name,t,l)=>await s("hf-rem",[...rems,{eid,eventName:name,t,l,by:emp}],setRems);
   const doRev=async(eid,data)=>await s("hf-rev",{...rev,[eid]:data},setRev);
 
-  // Filter events by tab
+  // Filter events by tab + subcategory
   const getEvents=()=>{
-    let evs=[];
-    if(tab==="all")evs=[...ALL_COMBINED];
-    else if(tab==="home")evs=[];
-    else if(tab==="calendar")evs=cd?ALL_COMBINED.filter(e=>e.date===cd):[];
-    else if(tab==="top_cities")evs=city?ALL_COMBINED.filter(e=>e.addr.toLowerCase().includes(city.toLowerCase())||e.venue.toLowerCase().includes(city.toLowerCase())):[];
-    else if(tab==="quickdial")evs=ALL_COMBINED.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED")&&(e.ph||pc[(e.venue||"").toLowerCase().trim()]?.phone);});
-    else evs=DE[tab]||[];
+    let evs=[...ALL_COMBINED];
+    if(tab==="home")return[];
+    if(tab==="calendar")return cd?evs.filter(e=>e.date===cd):[];
+    if(tab==="top_cities")return city?evs.filter(e=>e.addr.toLowerCase().includes(city.toLowerCase())||e.venue.toLowerCase().includes(city.toLowerCase())):[];
+    if(tab==="quickdial")return evs.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED")&&(e.ph||pc[(e.venue||"").toLowerCase().trim()]?.phone);});
+    // Subcategory filter
+    if(activeSub){evs=evs.filter(e=>(e.name+e.cat+(e.subcat||"")).toLowerCase().includes(activeSub.toLowerCase()));}
     // Search filter
-    if(q)evs=evs.filter(e=>(e.name+e.venue+e.addr+e.cat).toLowerCase().includes(q.toLowerCase()));
+    if(q)evs=evs.filter(e=>(e.name+e.venue+e.addr+e.cat+(e.subcat||"")).toLowerCase().includes(q.toLowerCase()));
     // Dead filter
     if(deadFilter)evs=evs.filter(e=>!DEAD.includes(logs[e.id]?.status));
     return evs;
@@ -398,16 +475,22 @@ export default function HotSeats(){
     </nav>
 
     {/* Search bar */}
-    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())loadLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>q.trim()?loadLive(q.trim()):loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 🔍 Search Live"}</button></div>
-    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — SeatGeek + Ticketmaster · {liveTotal.toLocaleString()} events from StubHub{liveError&&<span className="live-err"> · Error: {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);}}>Switch to Demo</button></div>}
-    {!isLive&&<div className="demo-bar">📋 Demo data — <button className="live-load" onClick={()=>loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"Load Live Events (SeatGeek + Ticketmaster)"}</button></div>}
+    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())searchLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>searchLive(q||"")} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 Search Live"}</button></div>
+    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — SeatGeek + Ticketmaster · {liveTotal.toLocaleString()} events{liveError&&<span className="live-err"> · {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);setCatCache({});}}>Switch to Demo</button></div>}
+    {!isLive&&!liveLoading&&<div className="demo-bar">📋 Click a category tab to load live events</div>}
 
     {/* Tabs */}
     <div className="tbar">{TABS.map(t=><button key={t.k} className={`tb ${tab===t.k?"tba":""}`} onClick={()=>{setTab(t.k);setCity(null);setCd(null);}}>{t.l}</button>)}</div>
 
     <div className="mc">
+      {/* Subcategory pills for category tabs */}
+      {CAT_CONFIG[tab]&&<div className="sub-bar"><button className={`sub-pill ${!activeSub?"sub-act":""}`} onClick={()=>setActiveSub("")}>All</button>{CAT_CONFIG[tab].subs.map(s=><button key={s} className={`sub-pill ${activeSub===s?"sub-act":""}`} onClick={()=>setActiveSub(activeSub===s?"":s)}>{s}</button>)}</div>}
+
+      {/* Loading indicator */}
+      {liveLoading&&<div className="loading-bar"><span className="load-spin"/>Loading events...</div>}
+
       {/* Dead list filter toggle */}
-      {tab!=="home"&&<div className="filter-row"><button className={`fb ${deadFilter?"fb-on":""}`} onClick={()=>setDF(!deadFilter)}>{deadFilter?"Showing fresh only ✓":"Hide dead events"}</button><span className="fc">{filtered.length} events</span></div>}
+      {tab!=="home"&&!liveLoading&&<div className="filter-row"><button className={`fb ${deadFilter?"fb-on":""}`} onClick={()=>setDF(!deadFilter)}>{deadFilter?"Showing fresh only ✓":"Hide dead events"}</button><span className="fc">{filtered.length} events</span></div>}
 
       {/* HOME */}
       {tab==="home"&&(<div className="home">
@@ -487,6 +570,8 @@ return `
 .lw{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:${bg};}.lc{background:${cd};border:1px solid ${bd};border-radius:20px;padding:36px 28px;max-width:420px;width:100%;text-align:center;}.lcb{margin-bottom:16px;}.lcb .sh,.lcb .ss{font-size:30px;}.lct{font-size:18px;font-weight:700;color:${tx};margin-bottom:20px;}.ech{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px;}.ecp{background:${dk?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)"};border:1px solid ${bd};border-radius:10px;padding:9px 16px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:${tx};cursor:pointer;display:flex;align-items:center;gap:6px;transition:all 0.15s;}.ecp:hover{border-color:#a855f7;}.ecst{font-size:10px;color:#22c55e;font-weight:700;}.lcr{display:flex;gap:6px;}.lci{flex:1;background:${inp};border:1px solid ${bd};border-radius:10px;padding:11px 14px;font-size:14px;color:${tx};outline:none;font-family:'DM Sans',sans-serif;}.lci::placeholder{color:${td};}.lcg{background:linear-gradient(135deg,#a855f7,#f43f5e);border:none;border-radius:10px;padding:11px 24px;font-family:'Outfit',sans-serif;font-size:15px;font-weight:800;color:#fff;cursor:pointer;letter-spacing:2px;}.lcg:hover{filter:brightness(1.15);}
 /* Leaderboard */
 .pgt{font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:${tx};margin-bottom:16px;display:flex;align-items:center;gap:8px;}.lbr{display:flex;align-items:center;gap:12px;background:${cd};border:1px solid ${bd};border-radius:10px;padding:14px 16px;margin-bottom:6px;}.lbm{border-color:rgba(168,85,247,0.3);background:rgba(168,85,247,0.04);}.lrk{font-size:18px;width:32px;text-align:center;}.lnm{font-weight:600;font-size:14px;color:${tx};flex:1;display:flex;align-items:center;gap:6px;}.lyu{font-size:8px;background:linear-gradient(135deg,#a855f7,#f43f5e);color:#fff;padding:2px 5px;border-radius:3px;font-weight:700;}.lht{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#22c55e;}.lcl{font-size:11px;color:${tm};}.lrt{font-size:11px;color:#3b82f6;font-weight:600;}
+.sub-bar{display:flex;gap:6px;padding:10px 0;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:wrap;margin-bottom:8px;}.sub-pill{background:${cd};border:1px solid ${bd};border-radius:20px;padding:6px 14px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;color:${tm};cursor:pointer;white-space:nowrap;transition:all 0.15s;}.sub-pill:hover{color:${tx};border-color:rgba(168,85,247,0.3);}.sub-act{background:rgba(168,85,247,0.15);color:#a855f7;border-color:rgba(168,85,247,0.3);}
+.loading-bar{display:flex;align-items:center;justify-content:center;gap:10px;padding:24px;color:${tm};font-size:14px;}.load-spin{display:inline-block;width:16px;height:16px;border:2px solid ${bd};border-top-color:#a855f7;border-radius:50%;animation:sp 0.6s linear infinite;}
 .ded{text-align:center;margin-top:40px;font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;color:${dk?"rgba(255,255,255,0.15)":"rgba(0,0,0,0.15)"};text-transform:uppercase;}
 .live-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.15);font-size:12px;font-weight:600;color:#22c55e;flex-wrap:wrap;}.live-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 1.5s ease-in-out infinite;}.live-err{color:#ef4444;font-weight:400;}.live-demo{background:none;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:3px 10px;font-size:11px;color:${tm};cursor:pointer;margin-left:auto;font-family:'DM Sans',sans-serif;}.live-demo:hover{color:${tx};}
 .demo-bar{padding:8px 16px;background:rgba(168,85,247,0.06);border-bottom:1px solid rgba(168,85,247,0.1);font-size:12px;color:${tm};}.live-load{background:linear-gradient(135deg,#a855f7,#f43f5e);border:none;border-radius:6px;padding:4px 14px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;}.live-load:hover{filter:brightness(1.15);}.live-load:disabled{opacity:0.5;}
