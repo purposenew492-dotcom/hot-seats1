@@ -217,19 +217,63 @@ function EC({ev,idx,log,pc,onSt,onNote,onPh,onRem,rems,onRev,revenue}){
 // ═══════════════════════════════════════
 // STUBHUB LIVE FETCH
 // ═══════════════════════════════════════
-async function fetchStubHub(query = "", page = 1, pageSize = 200) {
+// MULTI-SOURCE API FETCH (SeatGeek + Ticketmaster + StubHub fallback)
+// ═══════════════════════════════════════
+async function fetchSeatGeek(query = "", page = 1) {
   try {
-    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), country_code: "US" });
+    const params = new URLSearchParams({ page: String(page), per_page: "200" });
     if (query) params.set("q", query);
-    const res = await fetch(`/api/stubhub?${params}`);
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    const res = await fetch(`/api/seatgeek?${params}`);
+    if (!res.ok) throw new Error(`SeatGeek ${res.status}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     return data;
-  } catch (err) {
-    console.error("StubHub fetch error:", err);
-    return { events: [], total: 0, error: err.message };
-  }
+  } catch (err) { return { events: [], total: 0, error: err.message, source: "seatgeek" }; }
+}
+
+async function fetchTicketmaster(query = "", page = 0) {
+  try {
+    const params = new URLSearchParams({ page: String(page), size: "200" });
+    if (query) params.set("q", query);
+    const res = await fetch(`/api/ticketmaster?${params}`);
+    if (!res.ok) throw new Error(`Ticketmaster ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (err) { return { events: [], total: 0, error: err.message, source: "ticketmaster" }; }
+}
+
+async function fetchAllSources(query = "", page = 1) {
+  // Fetch from both sources in parallel
+  const [sg, tm] = await Promise.all([
+    fetchSeatGeek(query, page),
+    fetchTicketmaster(query, page - 1), // TM is 0-indexed
+  ]);
+
+  // Combine and deduplicate by name+date
+  const seen = new Set();
+  const combined = [];
+  const addEvents = (events) => {
+    events.forEach(ev => {
+      const key = (ev.name + ev.date).toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (!seen.has(key)) { seen.add(key); combined.push(ev); }
+    });
+  };
+
+  // SeatGeek first (has popularity scores)
+  if (sg.events?.length) addEvents(sg.events);
+  if (tm.events?.length) addEvents(tm.events);
+
+  const errors = [sg.error, tm.error].filter(Boolean);
+  const totalEstimate = (sg.total || 0) + (tm.total || 0);
+
+  return {
+    events: combined.sort((a, b) => (b.popularity || 0) - (a.popularity || 0)),
+    total: totalEstimate,
+    page,
+    errors: errors.length > 0 ? errors : null,
+    sources: { seatgeek: sg.events?.length || 0, ticketmaster: tm.events?.length || 0 },
+  };
 }
 
 // ═══════════════════════════════════════
@@ -253,14 +297,14 @@ export default function HotSeats(){
   const[isLive,setIsLive]=useState(false);
   const cR=useRef(null);
 
-  // Fetch live events from StubHub API
+  // Fetch live events from SeatGeek + Ticketmaster
   const loadLive=async(query,page=1)=>{
     setLiveLoading(true);setLiveError(null);
-    const data=await fetchStubHub(query,page,200);
-    if(data.error){setLiveError(data.error);setLiveLoading(false);return;}
+    const data=await fetchAllSources(query,page);
+    if(data.events.length===0&&data.errors){setLiveError(data.errors.join(" | "));setLiveLoading(false);return;}
     setLiveEvents(prev=>page===1?data.events:[...prev,...data.events]);
     setLiveTotal(data.total);setLivePage(page);setIsLive(true);setLiveLoading(false);
-    // Cache live events to storage
+    if(data.errors)setLiveError(data.errors.join(" | "));
     if(page===1)await sv("hf-live-events",data.events);
   };
 
@@ -354,9 +398,9 @@ export default function HotSeats(){
     </nav>
 
     {/* Search bar */}
-    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())loadLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>q.trim()?loadLive(q.trim()):loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 Search StubHub"}</button></div>
-    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — {liveTotal.toLocaleString()} events from StubHub{liveError&&<span className="live-err"> · Error: {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);}}>Switch to Demo</button></div>}
-    {!isLive&&<div className="demo-bar">📋 Demo data — <button className="live-load" onClick={()=>loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"Load Live Events from StubHub"}</button></div>}
+    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())loadLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>q.trim()?loadLive(q.trim()):loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 🔍 Search Live"}</button></div>
+    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — SeatGeek + Ticketmaster · {liveTotal.toLocaleString()} events from StubHub{liveError&&<span className="live-err"> · Error: {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);}}>Switch to Demo</button></div>}
+    {!isLive&&<div className="demo-bar">📋 Demo data — <button className="live-load" onClick={()=>loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"Load Live Events (SeatGeek + Ticketmaster)"}</button></div>}
 
     {/* Tabs */}
     <div className="tbar">{TABS.map(t=><button key={t.k} className={`tb ${tab===t.k?"tba":""}`} onClick={()=>{setTab(t.k);setCity(null);setCd(null);}}>{t.l}</button>)}</div>
