@@ -1,5 +1,6 @@
 "use client";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { loginEmployee, getEmployees, getCallLogs, upsertCallLog, updateCallNote, updateCallRevenue, getPhoneCache, cachePhone, getReminders, addReminder, getEmployeeStats } from "../lib/db";
 
 /* ═══════════════════════════════════════════
    HOT SEATS — FINAL BUILD
@@ -31,13 +32,13 @@ const DEAD=["DISS","NO","SOLD_OUT"];
 
 // Category config: each tab maps to SeatGeek type + Ticketmaster classificationName
 const CAT_CONFIG={
-  sports:{sg:"",tm:"Sports",subs:["NBA","NFL","MLB","NHL","NCAA Mens Basketball","NCAA Womens Basketball","MLS","UFC/MMA","Boxing","Wrestling","Tennis","Golf"]},
-  concerts:{sg:"concert",tm:"Music",subs:["Pop","Rock","Hip-Hop/Rap","Country","R&B","Latin","EDM/Electronic","Alternative","Jazz/Blues","Classical"]},
-  theatre:{sg:"theater",tm:"Arts & Theatre",subs:["Broadway","Musical","Comedy","Opera","Ballet","Cirque du Soleil","Off-Broadway"]},
-  rodeo:{sg:"",tm:"",subs:["PBR","NFR","Rodeo","Bull Riding","Barrel Racing"]},
+  sports:{sgTax:"sports",tmCat:"Sports",subs:["NBA","NFL","MLB","NHL","NCAA Mens Basketball","NCAA Womens Basketball","MLS","UFC","Boxing","Wrestling","Tennis","Golf"]},
+  concerts:{sgTax:"concert",tmCat:"Music",subs:["Pop","Rock","Hip-Hop","Country","R&B","Latin","EDM","Alternative","Jazz","Classical"]},
+  theatre:{sgTax:"theater",tmCat:"Arts & Theatre",subs:["Broadway","Musical","Comedy","Opera","Ballet","Cirque du Soleil"]},
+  rodeo:{sgTax:"",tmCat:"",sgQ:"rodeo",tmQ:"rodeo",subs:["PBR","NFR","Bull Riding","Barrel Racing","Rodeo"]},
 };
 
-const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"All Events"},{k:"sports",l:"Sports"},{k:"concerts",l:"Concerts"},{k:"theatre",l:"Theatre"},{k:"rodeo",l:"🤠 Rodeo"},{k:"top_cities",l:"Top Cities"},{k:"calendar",l:"Calendar"},{k:"quickdial",l:"⚡ Quick Dial"}];
+const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"📋 All Events"},{k:"sports",l:"🏟️ Sports"},{k:"concerts",l:"🎵 Concerts"},{k:"theatre",l:"🎭 Theatre"},{k:"rodeo",l:"🤠 Rodeo"},{k:"top_cities",l:"🏙️ Top Cities"},{k:"calendar",l:"📅 Calendar"},{k:"quickdial",l:"⚡ Quick Dial"}];
 const TOP_CITIES=["Atlanta","Chicago","Los Angeles","New York","SF Bay Area","Boston","Houston","Las Vegas","Denver","Detroit","Nashville","Miami","Philadelphia","Seattle","Portland","Toronto"];
 
 // ── EVENTS ──
@@ -291,7 +292,7 @@ export default function HotSeats(){
   const[pg,setPg]=useState("splash");
   const[tab,setTab]=useState("home");
   const[city,setCity]=useState(null);const[sc,setSc]=useState(false);
-  const[emp,setEmp]=useState(null);const[emps,setEmps]=useState([]);const[ei,setEi]=useState("");
+  const[emp,setEmp]=useState(null);const[empId,setEmpId]=useState(null);const[emps,setEmps]=useState([]);const[ei,setEi]=useState("");
   const[logs,setLogs]=useState({});const[stats,setSt]=useState({});
   const[q,setQ]=useState("");const[theme,setTh]=useState("dark");
   const[cd,setCd]=useState(null);const[act,setAct]=useState([]);
@@ -303,6 +304,7 @@ export default function HotSeats(){
   const[liveTotal,setLiveTotal]=useState(0);
   const[livePage,setLivePage]=useState(1);
   const[isLive,setIsLive]=useState(false);
+  const[dbLoading,setDbLoading]=useState(false);
   const cR=useRef(null);
 
   // Category-aware fetch from SeatGeek + Ticketmaster
@@ -322,13 +324,15 @@ export default function HotSeats(){
         const tmP=new URLSearchParams({page:String(page-1),size:"200",q:"rodeo"});
         tmPromise=fetch(`/api/ticketmaster?${tmP}`).then(r=>r.json()).catch(()=>({events:[]}));
       } else if(cfg){
-        // SeatGeek: use type param
-        if(cfg.sg)params.set("type",cfg.sg);
+        // SeatGeek: use taxonomies param for category filtering
+        if(cfg.sgTax)params.set("taxonomies",cfg.sgTax);
+        if(cfg.sgQ)params.set("q",cfg.sgQ);
         sgPromise=fetch(`/api/seatgeek?${params}`).then(r=>r.json()).catch(()=>({events:[]}));
         // Ticketmaster: use category param
         const tmP=new URLSearchParams({page:String(page-1),size:"200"});
         if(query)tmP.set("q",query);
-        if(cfg.tm)tmP.set("category",cfg.tm);
+        if(cfg.tmCat)tmP.set("category",cfg.tmCat);
+        if(cfg.tmQ)tmP.set("q",cfg.tmQ);
         tmPromise=fetch(`/api/ticketmaster?${tmP}`).then(r=>r.json()).catch(()=>({events:[]}));
       } else {
         // All events / search
@@ -350,8 +354,7 @@ export default function HotSeats(){
       const total=(sg?.total||0)+(tm?.total||0);
       setLiveEvents(prev=>page===1?combined:[...prev,...combined]);
       setLiveTotal(total);setLivePage(page);setIsLive(true);setLiveLoading(false);
-      if(page===1)await sv("hf-cat-"+category,combined);
-    }catch(err){setLiveError(err.message);setLiveLoading(false);}
+    }catch(err){console.error("loadCategory error:",err);setLiveError(err.message);setLiveLoading(false);}
   };
 
   // Load when tab changes (auto-fetch for category tabs)
@@ -360,15 +363,18 @@ export default function HotSeats(){
   
   useEffect(()=>{
     if(["sports","concerts","theatre","rodeo"].includes(tab)){
-      // Check if already cached
       if(catCache[tab]?.length>0){
         setLiveEvents(catCache[tab]);setIsLive(true);setLiveTotal(catCache[tab].length);
       } else {
         loadCategory(tab);
       }
       setActiveSub("");
-    } else if(tab==="all"){
-      loadCategory("all");
+    } else if(tab==="all"||tab==="quickdial"){
+      if(catCache["all"]?.length>0){
+        setLiveEvents(catCache["all"]);setIsLive(true);setLiveTotal(catCache["all"].length);
+      } else {
+        loadCategory("all");
+      }
       setActiveSub("");
     }
   },[tab]);
@@ -400,33 +406,50 @@ export default function HotSeats(){
     return ALL;
   },[isLive,liveEvents]);
 
-  useEffect(()=>{(async()=>{setLogs(await ld("hf-logs",{}));setSt(await ld("hf-stats",{}));setEmps(await ld("hf-emps",[]));setAct(await ld("hf-act",[]));setPc(await ld("hf-phones",{}));setRems(await ld("hf-rem",[]));setRev(await ld("hf-rev",{}));
-    const l=await ld("hf-emp",null),t=await ld("hf-theme","dark");setTh(t);if(l)setEmp(l);})();},[]);
+  useEffect(()=>{(async()=>{
+    // Load shared data from Supabase
+    setDbLoading(true);
+    try{
+      const[dbLogs,dbPc,dbRems,dbEmps,dbStats]=await Promise.all([
+        getCallLogs(),getPhoneCache(),getReminders(),getEmployees(),getEmployeeStats()
+      ]);
+      setLogs(dbLogs);setPc(dbPc);setRems(dbRems);setEmps(dbEmps);setSt(dbStats);
+      // Check localStorage for last logged-in user
+      const lastEmp=typeof window!=="undefined"?localStorage.getItem("hs-emp"):null;
+      const lastEmpId=typeof window!=="undefined"?localStorage.getItem("hs-empId"):null;
+      if(lastEmp){setEmp(lastEmp);setEmpId(lastEmpId);}
+    }catch(e){console.error("DB load error:",e);}
+    setDbLoading(false);
+  })();},[]);
   useEffect(()=>{const h=e=>{if(cR.current&&!cR.current.contains(e.target))setSc(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
 
-  const s=async(k,v,fn)=>{fn(v);await sv(k,v);};
+  // Refresh data from DB (call after any write)
+  const refreshDB=async()=>{
+    const[dbLogs,dbPc,dbRems,dbStats]=await Promise.all([getCallLogs(),getPhoneCache(),getReminders(),getEmployeeStats()]);
+    setLogs(dbLogs);setPc(dbPc);setRems(dbRems);setSt(dbStats);
+  };
+
   const dk=theme==="dark";
 
-  const login=async n=>{const nm=n.trim();if(!nm)return;setEmp(nm);await sv("hf-emp",nm);if(!emps.includes(nm)){const ne=[...emps,nm];setEmps(ne);await sv("hf-emps",ne);}if(!stats[nm])await s("hf-stats",{...stats,[nm]:{calls:0,sold:0,streak:0}},setSt);setPg("main");};
+  const login=async n=>{const nm=n.trim();if(!nm)return;
+    const employee=await loginEmployee(nm);
+    if(employee){setEmp(employee.name);setEmpId(employee.id);localStorage.setItem("hs-emp",employee.name);localStorage.setItem("hs-empId",employee.id);
+    const updatedEmps=await getEmployees();setEmps(updatedEmps);await refreshDB();}
+    setPg("main");};
 
   // Get streak
   const getStreak=()=>{let streak=0;for(const a of act){if(a.emp===emp&&a.action==="HIT")streak++;else if(a.emp===emp)break;}return streak;};
 
   const doSt=async(eid,status)=>{
-    const prev=logs[eid];const nl={...logs,[eid]:{...prev,status,employee:emp,timestamp:new Date().toISOString(),note:prev?.note||"",noteBy:prev?.noteBy||""}};await s("hf-logs",nl,setLogs);
-    const st={...stats};if(!st[emp])st[emp]={calls:0,sold:0,streak:0};
-    if(prev?.employee===emp&&prev?.status!=="NOT_CALLED")st[emp].calls=Math.max(0,st[emp].calls-1);
-    if(prev?.employee===emp&&prev?.status==="HIT")st[emp].sold=Math.max(0,st[emp].sold-1);
-    if(status!=="NOT_CALLED")st[emp].calls+=1;if(status==="HIT")st[emp].sold+=1;
-    await s("hf-stats",st,setSt);
-    const evN=ALL_COMBINED.find(e=>e.id===eid)?.name||eid;
-    await s("hf-act",[{emp,action:status,event:evN,time:new Date().toISOString()},...act].slice(0,50),setAct);
+    const ev=ALL_COMBINED.find(e=>e.id===eid);
+    await upsertCallLog(eid,ev?.name||"",ev?.venue||"",status,empId,emp,logs[eid]?.note||"",logs[eid]?.note_by||"",logs[eid]?.revenue_amount||0,logs[eid]?.revenue_tickets||0);
+    await refreshDB();
   };
 
-  const doNote=async(eid,note)=>{const prev=logs[eid]||{status:"NOT_CALLED",employee:"",timestamp:""};await s("hf-logs",{...logs,[eid]:{...prev,note,noteBy:emp}},setLogs);};
-  const doPh=async(eid,v,a)=>{const vk=v.toLowerCase().trim();if(pc[vk])return;const r=await gLookup(v,a);if(r?.phone)await s("hf-phones",{...pc,[vk]:r},setPc);};
-  const doRem=async(eid,name,t,l)=>await s("hf-rem",[...rems,{eid,eventName:name,t,l,by:emp}],setRems);
-  const doRev=async(eid,data)=>await s("hf-rev",{...rev,[eid]:data},setRev);
+  const doNote=async(eid,note)=>{await updateCallNote(eid,note,emp);await refreshDB();};
+  const doPh=async(eid,v,a)=>{const vk=v.toLowerCase().trim();if(pc[vk])return;const r=await gLookup(v,a);if(r?.phone){await cachePhone(vk,r.phone,v);await refreshDB();}};
+  const doRem=async(eid,name,t,l)=>{await addReminder(eid,name,t,l,empId,emp);await refreshDB();};
+  const doRev=async(eid,data)=>{await updateCallRevenue(eid,Number(data.amount)||0,Number(data.tickets)||0);await refreshDB();};
 
   // Filter events by tab + subcategory
   const getEvents=()=>{
@@ -454,7 +477,7 @@ export default function HotSeats(){
   if(pg==="splash")return(<><style>{CSS(dk)}</style><div className="splash"><div className="splash-bg"/><div className="splash-in"><div className="slogo"><div className="slt"><span className="sh">HOT</span><span className="ss">SEATS</span></div><div className="ssu">— TOP TICKET TRENDS —</div></div><button className="sbtn" onClick={()=>setPg(emp?"main":"login")}><span className="sbt">START</span><span className="sbg"/></button></div><div className="pts">{[...Array(20)].map((_,i)=><div key={i} className="pt" style={{"--x":Math.random()*100,"--y":Math.random()*100,"--dur":Math.random()*3+2}}/>)}</div></div></>);
 
   // ═══ LOGIN ═══
-  if(pg==="login"||!emp)return(<><style>{CSS(dk)}</style><div className="app"><div className="lw"><div className="lc"><div className="lcb"><span className="sh">HOT</span><span className="ss">SEATS</span></div><h2 className="lct">Who's on the phones?</h2>{emps.length>0&&<div className="ech">{emps.map(e=><button key={e} className="ecp" onClick={()=>login(e)}>{e}{stats[e]&&<span className="ecst">{stats[e].sold} hits</span>}</button>)}</div>}<div className="lcr"><input className="lci" placeholder="Enter your name..." value={ei} onChange={e=>setEi(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login(ei)}/><button className="lcg" onClick={()=>login(ei)}>GO</button></div></div></div></div></>);
+  if(pg==="login"||!emp)return(<><style>{CSS(dk)}</style><div className="app"><div className="lw"><div className="lc"><div className="lcb"><span className="sh">HOT</span><span className="ss">SEATS</span></div><h2 className="lct">Who's on the phones?</h2>{emps.length>0&&<div className="ech">{emps.map(e=><button key={e.id||e.name||e} className="ecp" onClick={()=>login(e.name||e)}>{e.name||e}{stats[e.name||e]&&<span className="ecst">{stats[e.name||e].sold} hits</span>}</button>)}</div>}<div className="lcr"><input className="lci" placeholder="Enter your name..." value={ei} onChange={e=>setEi(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login(ei)}/><button className="lcg" onClick={()=>login(ei)}>GO</button></div></div></div></div></>);
 
   // ═══ LEADERBOARD ═══
   if(pg==="leaderboard"){const sorted=Object.entries(stats).map(([n,s])=>({name:n,...s})).sort((a,b)=>b.sold-a.sold||b.calls-a.calls);
@@ -470,17 +493,17 @@ export default function HotSeats(){
         <button className="nb" onClick={()=>setTh(dk?"light":"dark")}>{dk?<I.Sun/>:<I.Moon/>}</button>
         <button className="nb" onClick={()=>exportCSV(logs,ALL_COMBINED,emp,stats,rev)}>📥</button>
         <div className="nuser">{emp}</div>
-        <button className="nb nsw" onClick={()=>{setEmp(null);setPg("login");}}>↻</button>
+        <button className="nb nsw" onClick={()=>{setEmp(null);setEmpId(null);localStorage.removeItem("hs-emp");localStorage.removeItem("hs-empId");setPg("login");}}>↻</button>
       </div>
     </nav>
 
     {/* Search bar */}
     <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())searchLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>searchLive(q||"")} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 Search Live"}</button></div>
-    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — SeatGeek + Ticketmaster · {liveTotal.toLocaleString()} events{liveError&&<span className="live-err"> · {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);setCatCache({});}}>Switch to Demo</button></div>}
+    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — SeatGeek + Ticketmaster · {liveEvents.length.toLocaleString()} events loaded{liveError&&<span className="live-err"> · {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);setCatCache({});}}>Switch to Demo</button></div>}
     {!isLive&&!liveLoading&&<div className="demo-bar">📋 Click a category tab to load live events</div>}
 
     {/* Tabs */}
-    <div className="tbar">{TABS.map(t=><button key={t.k} className={`tb ${tab===t.k?"tba":""}`} onClick={()=>{setTab(t.k);setCity(null);setCd(null);}}>{t.l}</button>)}</div>
+    <div className="tbar">{TABS.map(t=><button key={t.k} className={`tb ${tab===t.k?"tba":""}`} onClick={()=>{setTab(t.k);setCity(null);setCd(null);setQ("");setActiveSub("");}}>{t.l}</button>)}</div>
 
     <div className="mc">
       {/* Subcategory pills for category tabs */}
@@ -520,12 +543,18 @@ export default function HotSeats(){
       {tab==="quickdial"&&filtered.length>0&&<div className="qd-header"><span className="qd-title">⚡ Quick Dial Mode</span><span className="qd-sub">Only uncalled events with phone numbers. Call → mark → next.</span></div>}
 
       {/* EVENT LIST */}
-      {tab!=="home"&&(filtered.length===0?<div className="empty">{tab==="top_cities"&&!city?"Pick a city":tab==="calendar"&&!cd?"Pick a date":"No events found"}</div>:
+      {tab!=="home"&&(filtered.length===0&&!liveLoading?<div className="empty">{tab==="top_cities"&&!city?"Pick a city":tab==="calendar"&&!cd?"Pick a date":"No events found — try a different tab or search"}</div>:
         <div className="evl">{filtered.map((ev,i)=><EC key={ev.id} ev={ev} idx={i} log={logs[ev.id]} pc={pc} onSt={doSt} onNote={doNote} onPh={doPh} onRem={doRem} rems={rems} onRev={doRev} revenue={rev}/>)}</div>
       )}
 
+      {/* Fetch more button for current section */}
+      {tab!=="home"&&tab!=="calendar"&&tab!=="top_cities"&&!liveLoading&&filtered.length>0&&(
+        <div className="load-more"><button className="lm-btn" onClick={loadMore} disabled={liveLoading}>
+          {liveLoading?"Loading...":"📥 Fetch More "+( TABS.find(t=>t.k===tab)?.l||"Events")+" ("+filtered.length+" loaded)"}
+        </button></div>
+      )}
+
       <div className="ded">IN DEDICATION TO GET OUT THE TRENCH</div>
-      {isLive&&liveEvents.length<liveTotal&&<div className="load-more"><button className="lm-btn" onClick={loadMore} disabled={liveLoading}>{liveLoading?"Loading...":"Load More Events ("+liveEvents.length+" of "+liveTotal.toLocaleString()+")"}</button></div>}
       <div className="foot">Hot Seats — Top Ticket Trends · {isLive?liveTotal.toLocaleString()+" live events":"Demo data"} · {Object.keys(pc).length} venues cached</div>
     </div>
   </div></>);
