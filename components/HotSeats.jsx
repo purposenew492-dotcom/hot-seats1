@@ -38,7 +38,7 @@ const CAT_CONFIG={
   rodeo:{sgTax:"",tmCat:"",sgQ:"rodeo",tmQ:"rodeo",subs:["PBR","NFR","Bull Riding","Barrel Racing","Rodeo"]},
 };
 
-const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"📋 All Events"},{k:"sports",l:"🏟️ Sports"},{k:"concerts",l:"🎵 Concerts"},{k:"theatre",l:"🎭 Theatre"},{k:"rodeo",l:"🤠 Rodeo"},{k:"top_cities",l:"🏙️ Top Cities"},{k:"calendar",l:"📅 Calendar"},{k:"quickdial",l:"⚡ Quick Dial"}];
+const TABS=[{k:"home",l:"🏠 Home"},{k:"all",l:"📋 All Events"},{k:"sports",l:"🏟️ Sports"},{k:"concerts",l:"🎵 Concerts"},{k:"theatre",l:"🎭 Theatre"},{k:"rodeo",l:"🤠 Rodeo"},{k:"top_cities",l:"🏙️ Top Cities"},{k:"calendar",l:"📅 Calendar"},{k:"monthly",l:"📅 Monthly"},{k:"quickdial",l:"⚡ Quick Dial"}];
 const TOP_CITIES=["Atlanta","Chicago","Los Angeles","New York","SF Bay Area","Boston","Houston","Las Vegas","Denver","Detroit","Nashville","Miami","Philadelphia","Seattle","Portland","Toronto"];
 
 // ── EVENTS ──
@@ -130,6 +130,19 @@ function groupEvents(events) {
     groups[vk].events.push(ev);
   });
   return Object.values(groups).filter(g => g.events.length > 1).sort((a,b) => b.events.length - a.events.length);
+}
+
+function groupByMonth(events){
+  const months={};
+  events.forEach(e=>{
+    if(!e.date)return;
+    const d=new Date(e.date);
+    const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const label=d.toLocaleString("en-US",{month:"long",year:"numeric"});
+    if(!months[key])months[key]={label,events:[]};
+    months[key].events.push(e);
+  });
+  return Object.entries(months).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>({key:k,label:v.label,events:v.events}));
 }
 
 // ── EXPORT CSV ──
@@ -369,7 +382,7 @@ export default function HotSeats(){
         loadCategory(tab);
       }
       setActiveSub("");
-    } else if(tab==="all"||tab==="quickdial"){
+    } else if(tab==="all"||tab==="quickdial"||tab==="monthly"){
       if(catCache["all"]?.length>0){
         setLiveEvents(catCache["all"]);setIsLive(true);setLiveTotal(catCache["all"].length);
       } else {
@@ -457,7 +470,8 @@ export default function HotSeats(){
     if(tab==="home")return[];
     if(tab==="calendar")return cd?evs.filter(e=>e.date===cd):[];
     if(tab==="top_cities")return city?evs.filter(e=>e.addr.toLowerCase().includes(city.toLowerCase())||e.venue.toLowerCase().includes(city.toLowerCase())):[];
-    if(tab==="quickdial")return evs.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED")&&(e.ph||pc[(e.venue||"").toLowerCase().trim()]?.phone);});
+    if(tab==="monthly")return evs;
+    if(tab==="quickdial")return evs.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED");});
     // Subcategory filter
     if(activeSub){evs=evs.filter(e=>(e.name+e.cat+(e.subcat||"")).toLowerCase().includes(activeSub.toLowerCase()));}
     // Search filter
@@ -470,7 +484,8 @@ export default function HotSeats(){
   const filtered=getEvents();
   const streak=getStreak();
   const alerts=useMemo(()=>generateAlerts(ALL_COMBINED,logs),[logs]);
-  const groups=useMemo(()=>groupEvents(ALL_COMBINED),[]);
+  const groups=useMemo(()=>groupEvents(ALL_COMBINED),[ALL_COMBINED]);
+  const monthGroups=useMemo(()=>groupByMonth(ALL_COMBINED),[ALL_COMBINED]);
   const totalRev=Object.values(rev).reduce((a,r)=>a+Number(r.amount||0),0);
 
   // ═══ SPLASH ═══
@@ -539,8 +554,16 @@ export default function HotSeats(){
       {/* TOP CITIES */}
       {tab==="top_cities"&&<div className="csel" ref={cR}><button className="ctog" onClick={()=>setSc(!sc)}>{city||"Select a City"} <I.Chev/></button>{sc&&<div className="cdd">{TOP_CITIES.map(c=><button key={c} className={`copt ${c===city?"cact":""}`} onClick={()=>{setCity(c);setSc(false);}}>{c}</button>)}</div>}</div>}
 
+      {/* MONTHLY VIEW */}
+      {tab==="monthly"&&<div className="monthly-view">
+        {monthGroups.length===0&&<div className="empty-msg">No events found. Try loading a category first.</div>}
+        {monthGroups.map(mg=><div key={mg.key} className="month-group">
+          <h3 className="hst month-header">{mg.label} <span className="fc">({mg.events.length} events)</span></h3>
+          {mg.events.sort((a,b)=>new Date(a.date)-new Date(b.date)).map((ev,i)=><EC key={ev.id} ev={ev} idx={i} log={logs[ev.id]} pc={pc} onSt={doSt} onNote={doNote} onPh={doPh} onRem={doRem} rems={rems} onRev={doRev} revenue={rev[ev.id]}/>)}
+        </div>)}
+      </div>}
       {/* QUICK DIAL */}
-      {tab==="quickdial"&&filtered.length>0&&<div className="qd-header"><span className="qd-title">⚡ Quick Dial Mode</span><span className="qd-sub">Only uncalled events with phone numbers. Call → mark → next.</span></div>}
+      {tab==="quickdial"&&filtered.length>0&&<div className="qd-header"><span className="qd-title">⚡ Quick Dial Mode</span><span className="qd-sub">All uncalled events — look up numbers. Call → mark → next.</span></div>}
 
       {/* EVENT LIST */}
       {tab!=="home"&&(filtered.length===0&&!liveLoading?<div className="empty">{tab==="top_cities"&&!city?"Pick a city":tab==="calendar"&&!cd?"Pick a date":"No events found — try a different tab or search"}</div>:
@@ -608,4 +631,9 @@ return `
 .load-more{text-align:center;padding:20px;}.lm-btn{background:linear-gradient(135deg,#a855f7,#6366f1);border:none;border-radius:12px;padding:14px 32px;font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;color:#fff;cursor:pointer;transition:all 0.15s;}.lm-btn:hover{filter:brightness(1.15);transform:scale(1.02);}.lm-btn:disabled{opacity:0.5;}
 .empty{text-align:center;padding:36px 20px;color:${td};font-size:13px;}.foot{text-align:center;margin-top:12px;font-size:10px;color:${td};}
 @media(max-width:520px){.nr{gap:3px;}.nb{padding:4px 6px;font-size:10px;}.nuser{font-size:10px;}.ec-act{gap:3px;}.eb{padding:5px 8px;font-size:10px;}.ssn{font-size:14px;}.tb{padding:9px 10px;font-size:11px;}.slt .sh,.slt .ss{font-size:48px;}.search-in{padding:9px 14px;font-size:13px;}}
+
+.monthly-view{padding:8px 0;}
+.month-group{margin-bottom:24px;}
+.month-header{font-size:1.15rem;padding:10px 14px;margin:0 0 8px;border-radius:10px;background:rgba(255,165,0,0.12);border-left:4px solid orange;}
+.empty-msg{text-align:center;padding:40px 20px;opacity:0.6;font-size:1rem;}
 `;}
