@@ -215,6 +215,24 @@ function EC({ev,idx,log,pc,onSt,onNote,onPh,onRem,rems,onRev,revenue}){
 }
 
 // ═══════════════════════════════════════
+// STUBHUB LIVE FETCH
+// ═══════════════════════════════════════
+async function fetchStubHub(query = "", page = 1, pageSize = 200) {
+  try {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), country_code: "US" });
+    if (query) params.set("q", query);
+    const res = await fetch(`/api/stubhub?${params}`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (err) {
+    console.error("StubHub fetch error:", err);
+    return { events: [], total: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════
 export default function HotSeats(){
@@ -227,9 +245,42 @@ export default function HotSeats(){
   const[cd,setCd]=useState(null);const[act,setAct]=useState([]);
   const[pc,setPc]=useState({});const[rems,setRems]=useState([]);
   const[rev,setRev]=useState({});const[deadFilter,setDF]=useState(false);
+  const[liveEvents,setLiveEvents]=useState([]);
+  const[liveLoading,setLiveLoading]=useState(false);
+  const[liveError,setLiveError]=useState(null);
+  const[liveTotal,setLiveTotal]=useState(0);
+  const[livePage,setLivePage]=useState(1);
+  const[isLive,setIsLive]=useState(false);
   const cR=useRef(null);
 
-  useEffect(()=>{(async()=>{setLogs(await ld("hf-logs",{}));setSt(await ld("hf-stats",{}));setEmps(await ld("hf-emps",[]));setAct(await ld("hf-act",[]));setPc(await ld("hf-phones",{}));setRems(await ld("hf-rem",[]));setRev(await ld("hf-rev",{}));const l=await ld("hf-emp",null),t=await ld("hf-theme","dark");setTh(t);if(l)setEmp(l);})();},[]);
+  // Fetch live events from StubHub API
+  const loadLive=async(query,page=1)=>{
+    setLiveLoading(true);setLiveError(null);
+    const data=await fetchStubHub(query,page,200);
+    if(data.error){setLiveError(data.error);setLiveLoading(false);return;}
+    setLiveEvents(prev=>page===1?data.events:[...prev,...data.events]);
+    setLiveTotal(data.total);setLivePage(page);setIsLive(true);setLiveLoading(false);
+    // Cache live events to storage
+    if(page===1)await sv("hf-live-events",data.events);
+  };
+
+  // Load more pages
+  const loadMore=async()=>{
+    const nextPage=livePage+1;
+    await loadLive(q,nextPage);
+  };
+
+  // Combined events: live if available, otherwise demo
+  const ALL_COMBINED=useMemo(()=>{
+    if(isLive&&liveEvents.length>0)return liveEvents;
+    return ALL;
+  },[isLive,liveEvents]);
+
+  useEffect(()=>{(async()=>{setLogs(await ld("hf-logs",{}));setSt(await ld("hf-stats",{}));setEmps(await ld("hf-emps",[]));setAct(await ld("hf-act",[]));setPc(await ld("hf-phones",{}));setRems(await ld("hf-rem",[]));setRev(await ld("hf-rev",{}));
+    // Load cached live events
+    const cached=await ld("hf-live-events",[]);
+    if(cached.length>0){setLiveEvents(cached);setIsLive(true);setLiveTotal(cached.length);}
+    const l=await ld("hf-emp",null),t=await ld("hf-theme","dark");setTh(t);if(l)setEmp(l);})();},[]);
   useEffect(()=>{const h=e=>{if(cR.current&&!cR.current.contains(e.target))setSc(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
 
   const s=async(k,v,fn)=>{fn(v);await sv(k,v);};
@@ -247,7 +298,7 @@ export default function HotSeats(){
     if(prev?.employee===emp&&prev?.status==="HIT")st[emp].sold=Math.max(0,st[emp].sold-1);
     if(status!=="NOT_CALLED")st[emp].calls+=1;if(status==="HIT")st[emp].sold+=1;
     await s("hf-stats",st,setSt);
-    const evN=ALL.find(e=>e.id===eid)?.name||eid;
+    const evN=ALL_COMBINED.find(e=>e.id===eid)?.name||eid;
     await s("hf-act",[{emp,action:status,event:evN,time:new Date().toISOString()},...act].slice(0,50),setAct);
   };
 
@@ -259,11 +310,11 @@ export default function HotSeats(){
   // Filter events by tab
   const getEvents=()=>{
     let evs=[];
-    if(tab==="all")evs=[...ALL];
+    if(tab==="all")evs=[...ALL_COMBINED];
     else if(tab==="home")evs=[];
-    else if(tab==="calendar")evs=cd?ALL.filter(e=>e.date===cd):[];
-    else if(tab==="top_cities")evs=city?ALL.filter(e=>e.addr.toLowerCase().includes(city.toLowerCase())||e.venue.toLowerCase().includes(city.toLowerCase())):[];
-    else if(tab==="quickdial")evs=ALL.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED")&&(e.ph||pc[(e.venue||"").toLowerCase().trim()]?.phone);});
+    else if(tab==="calendar")evs=cd?ALL_COMBINED.filter(e=>e.date===cd):[];
+    else if(tab==="top_cities")evs=city?ALL_COMBINED.filter(e=>e.addr.toLowerCase().includes(city.toLowerCase())||e.venue.toLowerCase().includes(city.toLowerCase())):[];
+    else if(tab==="quickdial")evs=ALL_COMBINED.filter(e=>{const log=logs[e.id];return(!log||log.status==="NOT_CALLED")&&(e.ph||pc[(e.venue||"").toLowerCase().trim()]?.phone);});
     else evs=DE[tab]||[];
     // Search filter
     if(q)evs=evs.filter(e=>(e.name+e.venue+e.addr+e.cat).toLowerCase().includes(q.toLowerCase()));
@@ -274,8 +325,8 @@ export default function HotSeats(){
 
   const filtered=getEvents();
   const streak=getStreak();
-  const alerts=useMemo(()=>generateAlerts(ALL,logs),[logs]);
-  const groups=useMemo(()=>groupEvents(ALL),[]);
+  const alerts=useMemo(()=>generateAlerts(ALL_COMBINED,logs),[logs]);
+  const groups=useMemo(()=>groupEvents(ALL_COMBINED),[]);
   const totalRev=Object.values(rev).reduce((a,r)=>a+Number(r.amount||0),0);
 
   // ═══ SPLASH ═══
@@ -296,14 +347,16 @@ export default function HotSeats(){
         {streak>=2&&<span className="streak">🔥{streak}</span>}
         <button className="nb" onClick={()=>setPg("leaderboard")}><I.Trophy/></button>
         <button className="nb" onClick={()=>setTh(dk?"light":"dark")}>{dk?<I.Sun/>:<I.Moon/>}</button>
-        <button className="nb" onClick={()=>exportCSV(logs,ALL,emp,stats,rev)}>📥</button>
+        <button className="nb" onClick={()=>exportCSV(logs,ALL_COMBINED,emp,stats,rev)}>📥</button>
         <div className="nuser">{emp}</div>
         <button className="nb nsw" onClick={()=>{setEmp(null);setPg("login");}}>↻</button>
       </div>
     </nav>
 
     {/* Search bar */}
-    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}</div>
+    <div className="search-bar"><I.Search/><input className="search-in" placeholder="Search by artist, team, or venue" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim())loadLive(q.trim());}}/>{q&&<button className="search-x" onClick={()=>setQ("")}>✕</button>}<button className="sb-go" onClick={()=>q.trim()?loadLive(q.trim()):loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"🔍 Search StubHub"}</button></div>
+    {isLive&&<div className="live-bar"><span className="live-dot"/>LIVE — {liveTotal.toLocaleString()} events from StubHub{liveError&&<span className="live-err"> · Error: {liveError}</span>}<button className="live-demo" onClick={()=>{setIsLive(false);setLiveEvents([]);}}>Switch to Demo</button></div>}
+    {!isLive&&<div className="demo-bar">📋 Demo data — <button className="live-load" onClick={()=>loadLive("",1)} disabled={liveLoading}>{liveLoading?"Loading...":"Load Live Events from StubHub"}</button></div>}
 
     {/* Tabs */}
     <div className="tbar">{TABS.map(t=><button key={t.k} className={`tb ${tab===t.k?"tba":""}`} onClick={()=>{setTab(t.k);setCity(null);setCd(null);}}>{t.l}</button>)}</div>
@@ -324,14 +377,14 @@ export default function HotSeats(){
         {rems.filter(r=>new Date(r.t)<=new Date()).length>0&&<div className="hsec hurg"><h3 className="hst">🔔 Follow-Ups Due</h3>{rems.filter(r=>new Date(r.t)<=new Date()).map((r,i)=><div key={i} className="hcard hcard-click" onClick={()=>{setTab("all");setQ(r.eventName);}}><div className="hcn">{r.eventName}</div><div className="hcm">{r.l}</div></div>)}</div>}
 
         {/* Events this week */}
-        <div className="hsec"><h3 className="hst">📅 Events This Week ({ALL.filter(e=>{const d=new Date(e.date+"T12:00:00"),n=new Date(),w=new Date(n.getTime()+7*86400000);return d>=n&&d<=w;}).length})</h3>{ALL.filter(e=>{const d=new Date(e.date+"T12:00:00"),n=new Date(),w=new Date(n.getTime()+7*86400000);return d>=n&&d<=w;}).sort((a,b)=>new Date(a.date)-new Date(b.date)).map((ev,i)=><div key={ev.id} className="hcard hcard-click" onClick={()=>{setTab("all");setQ(ev.name);}}><div className="hcn">{ev.name}</div><div className="hcm">{ev.dd} · {ev.venue}</div></div>)}</div>
+        <div className="hsec"><h3 className="hst">📅 Events This Week ({ALL_COMBINED.filter(e=>{const d=new Date(e.date+"T12:00:00"),n=new Date(),w=new Date(n.getTime()+7*86400000);return d>=n&&d<=w;}).length})</h3>{ALL_COMBINED.filter(e=>{const d=new Date(e.date+"T12:00:00"),n=new Date(),w=new Date(n.getTime()+7*86400000);return d>=n&&d<=w;}).sort((a,b)=>new Date(a.date)-new Date(b.date)).map((ev,i)=><div key={ev.id} className="hcard hcard-click" onClick={()=>{setTab("all");setQ(ev.name);}}><div className="hcn">{ev.name}</div><div className="hcm">{ev.dd} · {ev.venue}</div></div>)}</div>
 
         {/* Event groups */}
         {groups.length>0&&<div className="hsec"><h3 className="hst">🔗 Venue Clusters (same venue, multiple events)</h3>{groups.slice(0,5).map((g,i)=><div key={i} className="hcard"><div className="hcn">{g.venue} — {g.events.length} events</div><div className="hcm">{g.events.map(e=>e.name).join(", ")}</div></div>)}</div>}
       </div>)}
 
       {/* CALENDAR */}
-      {tab==="calendar"&&<Cal events={ALL} sel={cd} onSel={setCd}/>}
+      {tab==="calendar"&&<Cal events={ALL_COMBINED} sel={cd} onSel={setCd}/>}
 
       {/* TOP CITIES */}
       {tab==="top_cities"&&<div className="csel" ref={cR}><button className="ctog" onClick={()=>setSc(!sc)}>{city||"Select a City"} <I.Chev/></button>{sc&&<div className="cdd">{TOP_CITIES.map(c=><button key={c} className={`copt ${c===city?"cact":""}`} onClick={()=>{setCity(c);setSc(false);}}>{c}</button>)}</div>}</div>}
@@ -345,7 +398,8 @@ export default function HotSeats(){
       )}
 
       <div className="ded">IN DEDICATION TO GET OUT THE TRENCH</div>
-      <div className="foot">Hot Seats — Top Ticket Trends · {Object.keys(pc).length} venues cached</div>
+      {isLive&&liveEvents.length<liveTotal&&<div className="load-more"><button className="lm-btn" onClick={loadMore} disabled={liveLoading}>{liveLoading?"Loading...":"Load More Events ("+liveEvents.length+" of "+liveTotal.toLocaleString()+")"}</button></div>}
+      <div className="foot">Hot Seats — Top Ticket Trends · {isLive?liveTotal.toLocaleString()+" live events":"Demo data"} · {Object.keys(pc).length} venues cached</div>
     </div>
   </div></>);
 }
@@ -390,6 +444,10 @@ return `
 /* Leaderboard */
 .pgt{font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:${tx};margin-bottom:16px;display:flex;align-items:center;gap:8px;}.lbr{display:flex;align-items:center;gap:12px;background:${cd};border:1px solid ${bd};border-radius:10px;padding:14px 16px;margin-bottom:6px;}.lbm{border-color:rgba(168,85,247,0.3);background:rgba(168,85,247,0.04);}.lrk{font-size:18px;width:32px;text-align:center;}.lnm{font-weight:600;font-size:14px;color:${tx};flex:1;display:flex;align-items:center;gap:6px;}.lyu{font-size:8px;background:linear-gradient(135deg,#a855f7,#f43f5e);color:#fff;padding:2px 5px;border-radius:3px;font-weight:700;}.lht{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#22c55e;}.lcl{font-size:11px;color:${tm};}.lrt{font-size:11px;color:#3b82f6;font-weight:600;}
 .ded{text-align:center;margin-top:40px;font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;color:${dk?"rgba(255,255,255,0.15)":"rgba(0,0,0,0.15)"};text-transform:uppercase;}
+.live-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.15);font-size:12px;font-weight:600;color:#22c55e;flex-wrap:wrap;}.live-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 1.5s ease-in-out infinite;}.live-err{color:#ef4444;font-weight:400;}.live-demo{background:none;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:3px 10px;font-size:11px;color:${tm};cursor:pointer;margin-left:auto;font-family:'DM Sans',sans-serif;}.live-demo:hover{color:${tx};}
+.demo-bar{padding:8px 16px;background:rgba(168,85,247,0.06);border-bottom:1px solid rgba(168,85,247,0.1);font-size:12px;color:${tm};}.live-load{background:linear-gradient(135deg,#a855f7,#f43f5e);border:none;border-radius:6px;padding:4px 14px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;}.live-load:hover{filter:brightness(1.15);}.live-load:disabled{opacity:0.5;}
+.sb-go{background:linear-gradient(135deg,#a855f7,#f43f5e);border:none;border-radius:24px;padding:11px 20px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:all 0.15s;}.sb-go:hover{filter:brightness(1.15);}.sb-go:disabled{opacity:0.5;}
+.load-more{text-align:center;padding:20px;}.lm-btn{background:linear-gradient(135deg,#a855f7,#6366f1);border:none;border-radius:12px;padding:14px 32px;font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;color:#fff;cursor:pointer;transition:all 0.15s;}.lm-btn:hover{filter:brightness(1.15);transform:scale(1.02);}.lm-btn:disabled{opacity:0.5;}
 .empty{text-align:center;padding:36px 20px;color:${td};font-size:13px;}.foot{text-align:center;margin-top:12px;font-size:10px;color:${td};}
 @media(max-width:520px){.nr{gap:3px;}.nb{padding:4px 6px;font-size:10px;}.nuser{font-size:10px;}.ec-act{gap:3px;}.eb{padding:5px 8px;font-size:10px;}.ssn{font-size:14px;}.tb{padding:9px 10px;font-size:11px;}.slt .sh,.slt .ss{font-size:48px;}.search-in{padding:9px 14px;font-size:13px;}}
 `;}
