@@ -1,7 +1,7 @@
-"use client";
+import dynamic from "next/dynamic";
 
-import HotSeats from "../components/HotSeats";
+const HotSeats = dynamic(() => import("../components/HotSeats"), { ssr: false });
 
 export default function Page() {
   return <HotSeats />;
-}
+  }
