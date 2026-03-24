@@ -460,7 +460,7 @@ export default function HotSeats(){
   };
 
   const doNote=async(eid,note)=>{await updateCallNote(eid,note,emp);await refreshDB();};
-  const doPh=async(eid,v,a)=>{const vk=v.toLowerCase().trim();if(pc[vk])return;const r=await gLookup(v,a);if(r?.phone){await cachePhone(vk,r.phone,v);await refreshDB();}};
+  const doPh=async(eid,v,a)=>{const vk=v.toLowerCase().trim();if(pc[vk])return;const r=await gLookup(v,a);if(r?.phone){await cachePhone(vk,r,v);await refreshDB();}};
   const doRem=async(eid,name,t,l)=>{await addReminder(eid,name,t,l,empId,emp);await refreshDB();};
   const doRev=async(eid,data)=>{await updateCallRevenue(eid,Number(data.amount)||0,Number(data.tickets)||0);await refreshDB();};
 
