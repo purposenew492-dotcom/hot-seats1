@@ -305,15 +305,10 @@ const inputStyle = { width: 100, background: "#0d0d1a", color: "#fff", border: "
 async function fetchSeatGeek(cat, city, page = 1) {
   try {
     const res = await fetch(`/api/seatgeek?type=${cat}&city=${encodeURIComponent(city || "")}&page=${page}`);
+        const data = await res.json();
     if (!res.ok) return [];
-    const data = await res.json();
-    return (data.events || []).map(e => ({
-      id: "sg-" + e.id, name: e.title || e.short_title, date: e.datetime_local?.split("T")[0],
-      dd: new Date(e.datetime_local).toLocaleDateString("en-US", { weekday: "short" }),
-      time: new Date(e.datetime_local).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
-      venue: e.venue?.name || "", addr: `${e.venue?.address || ""}, ${e.venue?.city || ""}, ${e.venue?.state || ""}`,
-      cat, subcat: e.type || "", popularity: e.score ? Math.round(e.score * 100) : 0, source: "seatgeek"
-    }));
+        return (data.events || []).map(e => ({ ...e, cat: e.cat || cat, source: e.source || "seatgeek" }));
+  }));
   } catch { return []; }
 }
 
@@ -321,18 +316,10 @@ async function fetchTicketmaster(tmId, city, page = 0) {
   if (!tmId) return [];
   try {
     const res = await fetch(`/api/ticketmaster?classificationId=${tmId}&city=${encodeURIComponent(city || "")}&page=${page}`);
+        const data = await res.json();
     if (!res.ok) return [];
-    const data = await res.json();
-    return (data._embedded?.events || []).map(e => {
-      const v = e._embedded?.venues?.[0];
-      return {
-        id: "tm-" + e.id, name: e.name, date: e.dates?.start?.localDate,
-        dd: e.dates?.start?.localDate ? new Date(e.dates.start.localDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }) : "",
-        time: e.dates?.start?.localTime ? new Date("2000-01-01T" + e.dates.start.localTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "",
-        venue: v?.name || "", addr: `${v?.address?.line1 || ""}, ${v?.city?.name || ""}, ${v?.state?.stateCode || ""}`,
-        cat: "", subcat: e.classifications?.[0]?.genre?.name || "", popularity: 0, source: "ticketmaster"
-      };
-    });
+        return (data.events || []).map(e => ({ ...e, source: e.source || "ticketmaster" }));
+  });
   } catch { return []; }
 }
 
