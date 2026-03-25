@@ -308,7 +308,6 @@ async function fetchSeatGeek(cat, city, page = 1) {
         const data = await res.json();
     if (!res.ok) return [];
         return (data.events || []).map(e => ({ ...e, cat: e.cat || cat, source: e.source || "seatgeek" }));
-  }));
   } catch { return []; }
 }
 
@@ -318,8 +317,7 @@ async function fetchTicketmaster(tmId, city, page = 0) {
     const res = await fetch(`/api/ticketmaster?classificationId=${tmId}&city=${encodeURIComponent(city || "")}&page=${page}`);
         const data = await res.json();
     if (!res.ok) return [];
-        return (data.events || []).map(e => ({ ...e, source: e.source || "ticketmaster" }));
-  });
+        return (data.events || []).map(e => ({ ...e, source: e.sou"ticketmaster" }));
   } catch { return []; }
 }
 
