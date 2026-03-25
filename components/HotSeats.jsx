@@ -317,7 +317,7 @@ async function fetchTicketmaster(tmId, city, page = 0) {
     const res = await fetch(`/api/ticketmaster?classificationId=${tmId}&city=${encodeURIComponent(city || "")}&page=${page}`);
         const data = await res.json();
     if (!res.ok) return [];
-        return (data.events || []).map(e => ({ ...e, source: e.sou"ticketmaster" }));
+        return (data.events || []).map(e => ({ ...e, source: e.source || "ticketmaster" }));
   } catch { return []; }
 }
 
