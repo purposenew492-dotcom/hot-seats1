@@ -351,10 +351,11 @@ export default function HotSeats() {
   const [authEmail, setAuthEmail] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const [splash, setSplash] = useState(true);
 
   // App state
-  const [view, setView] = useState("home"); // home | profile | leaderboard
+  const [view, setView] = useState("home"); // home | profile | leaderboard | hits | info
   const [tab, setTab] = useState("Sports");
   const [subView, setSubView] = useState("list"); // list | calendar | cities | monthly
   const [search, setSearch] = useState("");
@@ -609,8 +610,10 @@ export default function HotSeats() {
               style={authInput} />
           )}
 
-          <input type="password" placeholder="Password" value={authPass} onChange={e => setAuthPass(e.target.value)}
-            style={authInput} onKeyDown={e => e.key === "Enter" && (authMode === "login" ? handleLogin() : handleRegister())} />
+          <div style={{ position: "relative", marginBottom: 12 }}>
+            <input type={showPw ? "text" : "password"} placeholder="Password" value={authPass} onChange={e => setAuthPass(e.target.value)} style={{ ...authInput, marginBottom: 0, paddingRight: 44 }} onKeyDown={e => e.key === "Enter" && (authMode === "login" ? handleLogin() : handleRegister())} />
+            <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 16, padding: 4 }} title={showPw ? "Hide" : "Show"}>{showPw ? "Hide" : "Show"}</button>
+          </div>
 
           {authError && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 12, textAlign: "center" }}>{authError}</div>}
 
@@ -709,6 +712,63 @@ export default function HotSeats() {
     );
   }
 
+  /* ── HITS VIEW ── */
+  if (view === "hits") {
+    const hitEvents = events.filter(ev => callLogs[ev.id]?.status === "HIT");
+    const totalRev = hitEvents.reduce((sum, ev) => sum + Number(callLogs[ev.id]?.revenue_amount || 0), 0);
+    const totalTix = hitEvents.reduce((sum, ev) => sum + Number(callLogs[ev.id]?.revenue_tickets || 0), 0);
+    return (
+      <div style={appContainer}>
+        <div style={headerStyle}>
+          <button onClick={() => setView("home")} style={backBtn}>\u2190 Back</button>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>\u2705 All Hits</h2>
+          <div style={{ width: 60 }} />
+        </div>
+        <div style={{ background: "#1a2e1a", padding: "12px 16px", display: "flex", justifyContent: "space-around", borderBottom: "1px solid #2a4a2a" }}>
+          <div style={{ textAlign: "center" }}><div style={{ color: "#22c55e", fontWeight: 800, fontSize: 20 }}>{hitEvents.length}</div><div style={{ color: "#6b8f6b", fontSize: 10 }}>Total Hits</div></div>
+          <div style={{ textAlign: "center" }}><div style={{ color: "#4ade80", fontWeight: 800, fontSize: 20 }}>${Number(totalRev).toLocaleString()}</div><div style={{ color: "#6b8f6b", fontSize: 10 }}>Revenue</div></div>
+          <div style={{ textAlign: "center" }}><div style={{ color: "#86efac", fontWeight: 800, fontSize: 20 }}>{totalTix}</div><div style={{ color: "#6b8f6b", fontSize: 10 }}>Tickets</div></div>
+        </div>
+        <div style={{ padding: "8px 16px 80px" }}>
+          {hitEvents.length === 0 && <div style={{ color: "#666", textAlign: "center", padding: 30 }}>No hits yet. Start calling!</div>}
+          {hitEvents.map(ev => (
+            <EC key={ev.id} ev={ev} log={callLogs[ev.id]} onStatus={doStatus} onNote={doNote} onPhone={doPhone} onRevenue={doRevenue} phoneLoading={phoneLoading === ev.id} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ── INFO VIEW ── */
+  if (view === "info") {
+    return (
+      <div style={appContainer}>
+        <div style={headerStyle}>
+          <button onClick={() => setView("home")} style={backBtn}>\u2190 Back</button>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>\ud83d\udcca Data & Info</h2>
+          <div style={{ width: 60 }} />
+        </div>
+        <div style={{ padding: 16 }}>
+          <h3 style={{ color: "#ff6b35", margin: "0 0 12px" }}>Where Your Data Lives</h3>
+          {[
+            { title: "\ud83d\udce1 Event Sources", items: ["SeatGeek API \u2014 /api/seatgeek", "Ticketmaster API \u2014 /api/ticketmaster", "Events are fetched live when you switch categories"] },
+            { title: "\ud83d\udcde Phone Lookups", items: ["Google Places API \u2014 /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
+            { title: "\ud83d\uddc3\ufe0f Database (Supabase)", items: ["employees \u2014 user accounts & login info", "saved_events \u2014 events saved per user", "call_logs \u2014 status, notes, revenue per event", "phone_cache \u2014 cached venue phone numbers", "reminders \u2014 event reminders"] },
+            { title: "\ud83d\udcca Stats & Tracking", items: ["Calls, Hits, Revenue \u2014 from call_logs table", "Leaderboard \u2014 aggregated per employee", "Profile \u2014 your personal stats + call history"] },
+            { title: "\ud83d\udd17 Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
+          ].map(section => (
+            <div key={section.title} style={{ background: "#1e1e3a", borderRadius: 12, padding: 14, marginBottom: 10 }}>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{section.title}</div>
+              {section.items.map((item, i) => (
+                <div key={i} style={{ color: "#aaa", fontSize: 12, padding: "3px 0", borderTop: i > 0 ? "1px solid #2a2a4a" : "none" }}>{item}</div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   /* ── MAIN APP VIEW ── */
   return (
     <div style={appContainer}>
@@ -721,6 +781,8 @@ export default function HotSeats() {
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={loadProfile} style={navIconBtn} title="Profile"><UserIcon /></button>
           <button onClick={() => setView("leaderboard")} style={navIconBtn} title="Leaderboard">🏆</button>
+          <button onClick={() => setView("hits")} style={navIconBtn} title="Hits">\u2705</button>
+          <button onClick={() => setView("info")} style={navIconBtn} title="Info">\u2139\ufe0f</button>
           <button onClick={() => exportCSV(filtered, callLogs)} style={navIconBtn} title="Export">📊</button>
           <button onClick={handleLogout} style={navIconBtn} title="Logout"><LogoutIcon /></button>
         </div>
