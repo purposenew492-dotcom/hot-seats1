@@ -781,8 +781,8 @@ export default function HotSeats() {
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={loadProfile} style={navIconBtn} title="Profile"><UserIcon /></button>
           <button onClick={() => setView("leaderboard")} style={navIconBtn} title="Leaderboard">🏆</button>
-          <button onClick={() => setView("hits")} style={navIconBtn} title="Hits">\u2705</button>
-          <button onClick={() => setView("info")} style={navIconBtn} title="Info">\u2139\ufe0f</button>
+          <button onClick={() => setView("hits")} style={navIconBtn} title="Hits">✅</button>
+          <button onClick={() => setView("info")} style={navIconBtn} title="Info">ℹ️</button>
           <button onClick={() => exportCSV(filtered, callLogs)} style={navIconBtn} title="Export">📊</button>
           <button onClick={handleLogout} style={navIconBtn} title="Logout"><LogoutIcon /></button>
         </div>
