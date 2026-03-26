@@ -720,8 +720,8 @@ export default function HotSeats() {
     return (
       <div style={appContainer}>
         <div style={headerStyle}>
-          <button onClick={() => setView("home")} style={backBtn}>\u2190 Back</button>
-          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>\u2705 All Hits</h2>
+          <button onClick={() => setView("home")} style={backBtn}>← Back</button>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>✅ All Hits</h2>
           <div style={{ width: 60 }} />
         </div>
         <div style={{ background: "#1a2e1a", padding: "12px 16px", display: "flex", justifyContent: "space-around", borderBottom: "1px solid #2a4a2a" }}>
@@ -744,18 +744,18 @@ export default function HotSeats() {
     return (
       <div style={appContainer}>
         <div style={headerStyle}>
-          <button onClick={() => setView("home")} style={backBtn}>\u2190 Back</button>
-          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>\ud83d\udcca Data & Info</h2>
+          <button onClick={() => setView("home")} style={backBtn}>← Back</button>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>📊 Data & Info</h2>
           <div style={{ width: 60 }} />
         </div>
         <div style={{ padding: 16 }}>
           <h3 style={{ color: "#ff6b35", margin: "0 0 12px" }}>Where Your Data Lives</h3>
           {[
-            { title: "\ud83d\udce1 Event Sources", items: ["SeatGeek API \u2014 /api/seatgeek", "Ticketmaster API \u2014 /api/ticketmaster", "Events are fetched live when you switch categories"] },
-            { title: "\ud83d\udcde Phone Lookups", items: ["Google Places API \u2014 /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
-            { title: "\ud83d\uddc3\ufe0f Database (Supabase)", items: ["employees \u2014 user accounts & login info", "saved_events \u2014 events saved per user", "call_logs \u2014 status, notes, revenue per event", "phone_cache \u2014 cached venue phone numbers", "reminders \u2014 event reminders"] },
-            { title: "\ud83d\udcca Stats & Tracking", items: ["Calls, Hits, Revenue \u2014 from call_logs table", "Leaderboard \u2014 aggregated per employee", "Profile \u2014 your personal stats + call history"] },
-            { title: "\ud83d\udd17 Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
+            { title: "📡 Event Sources", items: ["SeatGeek API — /api/seatgeek", "Ticketmaster API — /api/ticketmaster", "Events are fetched live when you switch categories"] },
+            { title: "📞 Phone Lookups", items: ["Google Places API — /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
+            { title: "🗃️ Database (Supabase)", items: ["employees — user accounts & login info", "saved_events — events saved per user", "call_logs — status, notes, revenue per event", "phone_cache — cached venue phone numbers", "reminders — event reminders"] },
+            { title: "📊 Stats & Tracking", items: ["Calls, Hits, Revenue — from call_logs table", "Leaderboard — aggregated per employee", "Profile — your personal stats + call history"] },
+            { title: "🔗 Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
           ].map(section => (
             <div key={section.title} style={{ background: "#1e1e3a", borderRadius: 12, padding: 14, marginBottom: 10 }}>
               <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{section.title}</div>
