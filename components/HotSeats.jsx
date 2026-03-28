@@ -755,7 +755,7 @@ export default function HotSeats() {
           {[
             { title: "Event Sources", items: ["SeatGeek API — /api/seatgeek", "Ticketmaster API — /api/ticketmaster", "Events are fetched live when you switch categories"] },
             { title: "Phone Lookups", items: ["Google Places API — /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
-            { title: "🗃Database (Supabase)", items: ["employees — user accounts & login info", "saved_events — events saved per user", "call_logs — status, notes, revenue per event", "phone_cache — cached venue phone numbers", "reminders — event reminders"] },
+            { title: "Database (Supabase)", items: ["employees — user accounts & login info", "saved_events — events saved per user", "call_logs — status, notes, revenue per event", "phone_cache — cached venue phone numbers", "reminders — event reminders"] },
             { title: "Stats & Tracking", items: ["Calls, Hits, Revenue — from call_logs table", "Leaderboard — aggregated per employee", "Profile — your personal stats + call history"] },
             { title: "Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
           ].map(section => (
