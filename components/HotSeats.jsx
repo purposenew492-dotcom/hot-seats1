@@ -148,6 +148,8 @@ function CheckIcon() { return <svg width="14" height="14" viewBox="0 0 24 24" fi
 function SearchIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>; }
 function UserIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>; }
 function LogoutIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>; }
+function HitsIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>; }
+function InfoIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>; }
 
 /* ── Calendar mini component ── */
 function Cal({ events, onDateClick }) {
@@ -721,7 +723,7 @@ export default function HotSeats() {
       <div style={appContainer}>
         <div style={headerStyle}>
           <button onClick={() => setView("home")} style={backBtn}>← Back</button>
-          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>✅ All Hits</h2>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>All Hits</h2>
           <div style={{ width: 60 }} />
         </div>
         <div style={{ background: "#1a2e1a", padding: "12px 16px", display: "flex", justifyContent: "space-around", borderBottom: "1px solid #2a4a2a" }}>
@@ -745,17 +747,17 @@ export default function HotSeats() {
       <div style={appContainer}>
         <div style={headerStyle}>
           <button onClick={() => setView("home")} style={backBtn}>← Back</button>
-          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>📊 Data & Info</h2>
+          <h2 style={{ color: "#fff", margin: 0, fontSize: 18 }}>Data & Info</h2>
           <div style={{ width: 60 }} />
         </div>
         <div style={{ padding: 16 }}>
           <h3 style={{ color: "#ff6b35", margin: "0 0 12px" }}>Where Your Data Lives</h3>
           {[
-            { title: "📡 Event Sources", items: ["SeatGeek API — /api/seatgeek", "Ticketmaster API — /api/ticketmaster", "Events are fetched live when you switch categories"] },
-            { title: "📞 Phone Lookups", items: ["Google Places API — /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
-            { title: "🗃️ Database (Supabase)", items: ["employees — user accounts & login info", "saved_events — events saved per user", "call_logs — status, notes, revenue per event", "phone_cache — cached venue phone numbers", "reminders — event reminders"] },
-            { title: "📊 Stats & Tracking", items: ["Calls, Hits, Revenue — from call_logs table", "Leaderboard — aggregated per employee", "Profile — your personal stats + call history"] },
-            { title: "🔗 Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
+            { title: "Event Sources", items: ["SeatGeek API — /api/seatgeek", "Ticketmaster API — /api/ticketmaster", "Events are fetched live when you switch categories"] },
+            { title: "Phone Lookups", items: ["Google Places API — /api/phone-lookup", "Results cached in Supabase phone_cache table", "Shows Box Office + Venue Main Line when available"] },
+            { title: "🗃Database (Supabase)", items: ["employees — user accounts & login info", "saved_events — events saved per user", "call_logs — status, notes, revenue per event", "phone_cache — cached venue phone numbers", "reminders — event reminders"] },
+            { title: "Stats & Tracking", items: ["Calls, Hits, Revenue — from call_logs table", "Leaderboard — aggregated per employee", "Profile — your personal stats + call history"] },
+            { title: "Quick Links", items: ["App: hot-seats1.vercel.app", "GitHub: github.com/purposenew492-dotcom/hot-seats1", "Supabase: kaocwwenilhslnwnfrwe.supabase.co"] }
           ].map(section => (
             <div key={section.title} style={{ background: "#1e1e3a", borderRadius: 12, padding: 14, marginBottom: 10 }}>
               <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{section.title}</div>
@@ -781,8 +783,8 @@ export default function HotSeats() {
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={loadProfile} style={navIconBtn} title="Profile"><UserIcon /></button>
           <button onClick={() => setView("leaderboard")} style={navIconBtn} title="Leaderboard">🏆</button>
-          <button onClick={() => setView("hits")} style={navIconBtn} title="Hits">✅</button>
-          <button onClick={() => setView("info")} style={navIconBtn} title="Info">ℹ️</button>
+          <button onClick={() => setView("hits")} style={navIconBtn} title="Hits"><HitsIcon /></button>
+          <button onClick={() => setView("info")} style={navIconBtn} title="Info"><InfoIcon /></button>
           <button onClick={() => exportCSV(filtered, callLogs)} style={navIconBtn} title="Export">📊</button>
           <button onClick={handleLogout} style={navIconBtn} title="Logout"><LogoutIcon /></button>
         </div>
